@@ -27,7 +27,7 @@
 
             <div class="form-group">
               <label for="file" class="form-label">Choose Excel file</label>
-              <input class="form-control" type="file" id="file" accept=".xlsx,.xls">
+              <input class="form-control" type="file" id="file" accept=".csv,.xlsx,.xls">
             </div>
 
             <div class="d-flex justify-content-between mt-3">
@@ -49,12 +49,25 @@
       return h.replace(/^\uFEFF/, "").trim();
     }
 
-    function getShift(time) {
-      const hours = Math.round(time * 24);
-      if (hours === 8) return "AM";
-      if (hours === 13) return "PM";
+  function getShift(time) {
+    if (time === undefined || time === null || time === "") return "";
+
+    let hours;
+
+    if (typeof time === "number") {
+      hours = Math.round(time * 24);
+    } else if (typeof time === "string") {
+      const match = time.match(/^(\d{1,2}):\d{2}/);
+      if (match) hours = parseInt(match[1], 10);
+      else return "";
+    } else {
       return "";
     }
+
+    if (hours === 8) return "AM";
+    if (hours === 13) return "PM";
+    return "";
+  }
 
     function generateSheetAndHTML(rows) {
       rows.sort((a, b) => {
