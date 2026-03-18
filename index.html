@@ -56,17 +56,12 @@
       return "";
     }
 
-    // New helper: generate sorted rows and sheet for each date
     function generateSheetAndHTML(rows) {
-      // Sort by Node, then Booking Shift
-      // Sort by Booking Shift first, then Node
       rows.sort((a, b) => {
-        // AM < PM
         const shiftOrder = { "PM": 0, "AM": 1, "": 2 }; // handle empty shift last
         const shiftCompare = (shiftOrder[a["Booking Shift"]] || 2) - (shiftOrder[b["Booking Shift"]] || 2);
         if (shiftCompare !== 0) return shiftCompare;
 
-        // Then sort by Node alphabetically
         return (a.Node || "").localeCompare(b.Node || "", undefined, { sensitivity: "base" });
       });
 
