@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Lashing COE Booking Reformatter</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
+    integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+</head>
+
+<body class="bg-light">
+
+  <div class="container mt-5">
+    <div class="row justify-content-center">
+      <div class="col-md-8 col-sm-10">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h3 class="card-title text-center mb-4">Lashing COE<br>Booking Reformatter</h3>
+
+            <div class="form-group">
+              <label for="file" class="form-label">Choose Excel file</label>
+              <input class="form-control" type="file" id="file" accept=".xlsx,.xls">
+            </div>
+
+            <div class="d-flex justify-content-between mt-3">
+              <button class="btn btn-success flex-fill mr-2" onclick="processFile(true)">Reformat & View</button>
+              <button class="btn btn-primary flex-fill ml-2" onclick="processFile(false)">Reformat & Download</button>
+            </div>
+
+            <div id="status" class="mt-3 text-center text-info"></div>
+
+            <div id="viewResult" class="mt-4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function cleanHeader(h) {
+      return h.replace(/^\uFEFF/, "").trim();
+    }
+
+    function getShift(time) {
+      const hours = Math.round(time * 24);
+      if (hours === 8) return "AM";
+      if (hours === 13) return "PM";
+      return "";
+    }
+
+    // New helper: generate sorted rows and sheet for each date
+    function generateSheetAndHTML(rows) {
+      // Sort by Node, then Booking Shift
+      // Sort by Booking Shift first, then Node
+      rows.sort((a, b) => {
+        // AM < PM
+        const shiftOrder = { "PM": 0, "AM": 1, "": 2 }; // handle empty shift last
+        const shiftCompare = (shiftOrder[a["Booking Shift"]] || 2) - (shiftOrder[b["Booking Shift"]] || 2);
+        if (shiftCompare !== 0) return shiftCompare;
+
+        // Then sort by Node alphabetically
+        return (a.Node || "").localeCompare(b.Node || "", undefined, { sensitivity: "base" });
+      });
+
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      sheet["!cols"] = [
+        { wch: 15 },
+        { wch: 25 },
+        { wch: 45 }
+      ];
+
+      const html = XLSX.utils.sheet_to_html(sheet);
+      return { sheet, html };
+    }
+
+    function processFile(viewOnly) {
+      const file = document.getElementById("file").files[0];
+      const statusEl = document.getElementById("status");
+      const viewEl = document.getElementById("viewResult");
+      viewEl.innerHTML = "";
+
+      if (!file) {
+        statusEl.textContent = "Please select a file first.";
+        return;
+      }
+      statusEl.textContent = "Processing...";
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const headers = raw[0].map(cleanHeader);
+
+        const dateIndex = headers.indexOf("Booking date");
+        const timeIndex = headers.indexOf("Booking start time");
+        const nodeIndex = headers.indexOf("Node");
+        const nameIndex = headers.indexOf("Name of Attendee");
+
+        const grouped = {};
+
+        for (let i = 1; i < raw.length; i++) {
+          const row = raw[i];
+          const date = row[dateIndex];
+          if (!grouped[date]) grouped[date] = [];
+          grouped[date].push({
+            "Booking Shift": getShift(row[timeIndex]),
+            Node: row[nodeIndex],
+            "Name of Attendee": row[nameIndex]
+          });
+        }
+
+        const newBook = XLSX.utils.book_new();
+
+        Object.keys(grouped).forEach(date => {
+          const { sheet: sortedSheet, html: htmlTable } = generateSheetAndHTML(grouped[date]);
+
+          const sheetName = date.replace(/\//g, ".");
+          XLSX.utils.book_append_sheet(newBook, sortedSheet, sheetName);
+
+          if (viewOnly) {
+            viewEl.innerHTML += `<h5 class="mt-4">Preview (${sheetName})</h5>` + htmlTable;
+          }
+        });
+
+        const allDates = Object.keys(grouped).sort((a, b) => {
+          const [d1, m1, y1] = a.split("/").map(Number);
+          const [d2, m2, y2] = b.split("/").map(Number);
+          return new Date(y1, m1 - 1, d1) - new Date(y2, m2 - 1, d2);
+        });
+
+        function formatDateForFile(d) {
+          const [day, month, year] = d.split("/");
+          return `${day.padStart(2, "0")}.${month.padStart(2, "0")}.${year.toString().slice(-2)}`;
+        }
+
+        const startDate = formatDateForFile(allDates[0]);
+        const endDate = formatDateForFile(allDates[allDates.length - 1]);
+        const fileName = `Bookings ${startDate}-${endDate}.xlsx`;
+
+        if (viewOnly) {
+          statusEl.textContent = "Preview ready for all dates.";
+        } else {
+          const wbout = XLSX.write(newBook, { bookType: 'xlsx', type: 'array' });
+          const blob = new Blob([wbout], { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          statusEl.textContent = `Download complete: ${fileName}`;
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+  </script>
+
+</body>
+
+</html>
